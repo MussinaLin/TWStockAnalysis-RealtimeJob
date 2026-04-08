@@ -1,0 +1,17 @@
+[project]
+name = "tw-stock-realtime-job"
+version = "0.1.0"
+description = "Realtime intraday price updater for TWStockAnalysis"
+requires-python = ">=3.13"
+dependencies = [
+  "psycopg[binary,pool]>=3.1.0",
+  "requests>=2.32.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0.0",
+]
+
+[tool.ruff]
+line-length = 100
