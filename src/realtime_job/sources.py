@@ -1,137 +1,87 @@
-"""Data sources for realtime stock prices."""
+"""Data source for realtime stock prices via yfinance."""
 
 from __future__ import annotations
 
 import datetime as dt
-import re
-import time
+import math
 
-import requests
-
-TWSE_MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
-TPEX_QUOTES_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
-
-# TWSE realtime API batch size and delay
-_TWSE_BATCH_SIZE = 20
-_TWSE_BATCH_DELAY = 0.3
+import yfinance as yf
 
 
-def _parse_roc_date(value: str) -> dt.date | None:
-    """Parse ROC date string (e.g. '1150408') to dt.date."""
-    text = value.strip()
-    if len(text) == 7 and text.isdigit():
-        year = int(text[:3]) + 1911
-        month = int(text[3:5])
-        day = int(text[5:7])
-        try:
-            return dt.date(year, month, day)
-        except ValueError:
-            return None
-    return None
-
-
-def _clean_number(value: str) -> float | None:
-    """Parse numeric string, stripping commas. Returns None for invalid values."""
-    if not value or value.strip() in ("", "-", "--", "---"):
+def _safe_float(val) -> float | None:
+    """Convert to float, returning None for NaN/Inf."""
+    if val is None:
         return None
-    text = value.strip().replace(",", "")
     try:
-        return float(text)
-    except ValueError:
+        f = float(val)
+    except (TypeError, ValueError):
         return None
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return f
 
 
-def fetch_tpex_quotes(session: requests.Session) -> tuple[list[dict], dt.date | None]:
-    """Fetch all TPEX stock quotes from OpenAPI.
+def fetch_prices(
+    stocks: list[tuple[str, str, str]],
+) -> tuple[list[dict], dt.date | None]:
+    """Fetch OHLCV for given stocks via yfinance.
 
-    Returns (list of {symbol, name, open, high, low, close}, data_date).
+    Args:
+        stocks: list of (symbol, name, market_type) where market_type is 'twse' or 'tpex'.
+
+    Returns:
+        (list of {symbol, name, open, high, low, close}, data_date).
     """
-    resp = session.get(TPEX_QUOTES_URL, timeout=30)
-    resp.raise_for_status()
-    payload = resp.json()
-
-    if not isinstance(payload, list) or not payload:
+    if not stocks:
         return [], None
 
-    data_date = _parse_roc_date(payload[0].get("Date", ""))
+    # Build yfinance symbols: 2330 -> 2330.TW, 8299 -> 8299.TWO
+    suffix_map = {"twse": ".TW", "tpex": ".TWO"}
+    yf_to_stock: dict[str, tuple[str, str]] = {}  # yf_symbol -> (symbol, name)
+    for symbol, name, market_type in stocks:
+        suffix = suffix_map.get(market_type, "")
+        if not suffix:
+            continue
+        yf_sym = f"{symbol}{suffix}"
+        yf_to_stock[yf_sym] = (symbol, name)
+
+    if not yf_to_stock:
+        return [], None
+
+    yf_symbols = list(yf_to_stock.keys())
+    data = yf.download(
+        yf_symbols,
+        period="1d",
+        interval="1d",
+        progress=False,
+        auto_adjust=False,
+        multi_level_index=True,
+    )
+
+    if data.empty:
+        return [], None
+
+    data_date = data.index[0].date() if len(data.index) > 0 else None
 
     results = []
-    for item in payload:
-        symbol = item.get("SecuritiesCompanyCode", "").strip()
-        if not symbol or not re.match(r"^\d{4,6}$", symbol):
+    for yf_sym, (symbol, name) in yf_to_stock.items():
+        if yf_sym not in data["Close"].columns:
             continue
+        row_close = _safe_float(data["Close"][yf_sym].iloc[0])
+        row_open = _safe_float(data["Open"][yf_sym].iloc[0])
+        row_high = _safe_float(data["High"][yf_sym].iloc[0])
+        row_low = _safe_float(data["Low"][yf_sym].iloc[0])
 
-        close_val = _clean_number(item.get("Close", ""))
-        if close_val is None:
+        if row_close is None:
             continue
 
         results.append({
             "symbol": symbol,
-            "name": item.get("CompanyName", "").strip(),
-            "open": _clean_number(item.get("Open", "")),
-            "high": _clean_number(item.get("High", "")),
-            "low": _clean_number(item.get("Low", "")),
-            "close": close_val,
+            "name": name,
+            "open": row_open,
+            "high": row_high,
+            "low": row_low,
+            "close": row_close,
         })
-
-    return results, data_date
-
-
-def fetch_twse_realtime(
-    session: requests.Session,
-    symbols: list[str],
-) -> tuple[list[dict], dt.date | None]:
-    """Fetch realtime prices from TWSE MIS API for given symbols.
-
-    Returns (list of {symbol, name, open, high, low, close}, data_date).
-    Queries in batches of 20 with short delays between batches.
-    """
-    if not symbols:
-        return [], None
-
-    results = []
-    data_date = None
-
-    for i in range(0, len(symbols), _TWSE_BATCH_SIZE):
-        batch = symbols[i : i + _TWSE_BATCH_SIZE]
-        ex_ch = "|".join(f"tse_{s}.tw" for s in batch)
-
-        if i > 0:
-            time.sleep(_TWSE_BATCH_DELAY)
-
-        resp = session.get(TWSE_MIS_URL, params={"ex_ch": ex_ch}, timeout=15)
-        resp.raise_for_status()
-        payload = resp.json()
-
-        for item in payload.get("msgArray", []):
-            symbol = item.get("c", "").strip()
-            if not symbol:
-                continue
-
-            # z = last trade price, "-" means no trade yet
-            z = item.get("z", "-")
-            if z == "-":
-                continue
-
-            close_val = _clean_number(z)
-            if close_val is None:
-                continue
-
-            if data_date is None:
-                d = item.get("d", "")
-                if d and len(d) == 8:
-                    try:
-                        data_date = dt.date(int(d[:4]), int(d[4:6]), int(d[6:8]))
-                    except ValueError:
-                        pass
-
-            results.append({
-                "symbol": symbol,
-                "name": item.get("n", "").strip(),
-                "open": _clean_number(item.get("o", "")),
-                "high": _clean_number(item.get("h", "")),
-                "low": _clean_number(item.get("l", "")),
-                "close": close_val,
-            })
 
     return results, data_date
