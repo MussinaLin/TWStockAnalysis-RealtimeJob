@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import math
 
 import yfinance as yf
+
+logger = logging.getLogger("realtime_job")
 
 
 def _safe_float(val) -> float | None:
@@ -49,6 +52,7 @@ def fetch_prices(
         return [], None
 
     yf_symbols = list(yf_to_stock.keys())
+    logger.info("呼叫 yfinance download，共 %d 個 symbol", len(yf_symbols))
     data = yf.download(
         yf_symbols,
         period="1d",
@@ -59,13 +63,18 @@ def fetch_prices(
     )
 
     if data.empty:
+        logger.warning("yfinance 回傳空資料")
         return [], None
 
     data_date = data.index[0].date() if len(data.index) > 0 else None
+    logger.info("yfinance 回傳日期: %s", data_date)
 
     results = []
+    skipped = 0
     for yf_sym, (symbol, name) in yf_to_stock.items():
         if yf_sym not in data["Close"].columns:
+            logger.debug("symbol %s 無資料欄位，跳過", yf_sym)
+            skipped += 1
             continue
         row_close = _safe_float(data["Close"][yf_sym].iloc[0])
         row_open = _safe_float(data["Open"][yf_sym].iloc[0])
@@ -73,6 +82,8 @@ def fetch_prices(
         row_low = _safe_float(data["Low"][yf_sym].iloc[0])
 
         if row_close is None:
+            logger.debug("symbol %s close 為 None，跳過", yf_sym)
+            skipped += 1
             continue
 
         results.append({
@@ -84,4 +95,6 @@ def fetch_prices(
             "close": row_close,
         })
 
+    if skipped:
+        logger.info("yfinance 解析: %d 筆成功, %d 筆跳過", len(results), skipped)
     return results, data_date

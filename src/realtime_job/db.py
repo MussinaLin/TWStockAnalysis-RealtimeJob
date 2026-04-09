@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import math
 
 import psycopg
 from psycopg_pool import ConnectionPool
+
+logger = logging.getLogger("realtime_job")
 
 _pool: ConnectionPool | None = None
 _partition_years: set[int] = set()
@@ -40,6 +43,7 @@ def ensure_partition(conn: psycopg.Connection, trade_date: dt.date) -> None:
         f"CREATE TABLE IF NOT EXISTS {part_name} PARTITION OF stock_daily_raw"
         f" FOR VALUES FROM ('{start}') TO ('{end}')"
     )
+    logger.info("確認 partition %s 存在", part_name)
     _partition_years.add(year)
 
 
