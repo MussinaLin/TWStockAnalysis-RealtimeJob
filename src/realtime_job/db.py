@@ -43,8 +43,8 @@ def ensure_partition(conn: psycopg.Connection, trade_date: dt.date) -> None:
     _partition_years.add(year)
 
 
-def init_config_table(database_url: str) -> None:
-    """Create config table if not exists."""
+def init_schema(database_url: str) -> None:
+    """Create config table and add market_type column if not exists."""
     pool = get_pool(database_url)
     with pool.connection() as conn:
         conn.execute("""
@@ -58,6 +58,9 @@ def init_config_table(database_url: str) -> None:
         conn.execute("""
             INSERT INTO config (key, value) VALUES ('is_trading_date', 'true')
             ON CONFLICT (key) DO NOTHING
+        """)
+        conn.execute("""
+            ALTER TABLE stocks ADD COLUMN IF NOT EXISTS market_type VARCHAR(4)
         """)
         conn.commit()
 
@@ -73,14 +76,15 @@ def is_trading_date(database_url: str) -> bool:
     return row[0].lower() == "true"
 
 
-def get_enabled_stocks(database_url: str) -> list[tuple[str, str]]:
-    """Return list of (symbol, name) for enabled stocks."""
+def get_enabled_stocks(database_url: str) -> list[tuple[str, str, str | None]]:
+    """Return list of (symbol, name, market_type) for enabled stocks."""
     pool = get_pool(database_url)
     with pool.connection() as conn:
         rows = conn.execute(
-            "SELECT symbol, name FROM stocks WHERE enabled = TRUE ORDER BY symbol"
+            "SELECT symbol, name, market_type"
+            " FROM stocks WHERE enabled = TRUE ORDER BY symbol"
         ).fetchall()
-    return [(r[0], r[1]) for r in rows]
+    return [(r[0], r[1], r[2]) for r in rows]
 
 
 def _safe(val):
