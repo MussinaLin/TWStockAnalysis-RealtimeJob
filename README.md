@@ -7,18 +7,16 @@ TWStockAnalysis 為 daily job（每天收盤後執行一次），本專案以 cr
 ## 執行流程
 
 1. 查詢 `config` table 的 `is_trading_date`，非交易日直接結束
-2. 查詢 `stocks` table 中 `enabled=TRUE` 的股票清單
-3. 從 TPEX OpenAPI 取得所有上櫃股票即時報價（一次全拿）
-4. 剩餘上市股票從 TWSE 即時 API 分批取得報價（每批 20 支）
-5. 將 open, high, low, current price（寫入 close 欄位）upsert 到 `stock_daily_raw` table
-6. 結束
+2. 查詢 `stocks` table 中 `enabled=TRUE` 且有 `market_type` 的股票清單
+3. 透過 yfinance 一次取得所有股票的 OHLCV（上市 `.TW`、上櫃 `.TWO`）
+4. 將 open, high, low, current price（寫入 close 欄位）upsert 到 `stock_daily_raw` table
+5. 結束
 
 ## 資料來源
 
-| 市場 | API | 說明 |
-|------|-----|------|
-| TPEX 上櫃 | `tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes` | OpenAPI，一次回傳所有上櫃股票 OHLCV |
-| TWSE 上市 | `mis.twse.com.tw/stock/api/getStockInfo.jsp` | 即時報價，分批查詢 |
+| 來源 | 說明 |
+|------|------|
+| [yfinance](https://pypi.org/project/yfinance/) | Yahoo Finance API wrapper，支援台股上市 (`.TW`) 及上櫃 (`.TWO`) |
 
 ## DB 異動
 
@@ -36,6 +34,23 @@ CREATE TABLE IF NOT EXISTS config (
 ```
 
 預設 `is_trading_date = 'true'`，非交易日需手動（或透過其他機制）設為 `'false'`。
+
+### 新增 `stocks.market_type` 欄位
+
+程式首次執行時自動加欄位：
+
+```sql
+ALTER TABLE stocks ADD COLUMN IF NOT EXISTS market_type VARCHAR(4);
+-- 值為 'twse'（上市）或 'tpex'（上櫃）
+```
+
+首次部署後需執行一次性回填腳本：
+
+```bash
+DATABASE_URL=postgresql://... python scripts/backfill_market_type.py
+```
+
+此腳本透過 yfinance 自動偵測每支股票屬於上市或上櫃，並寫入 `market_type`。
 
 ### 寫入 `stock_daily_raw` table
 
