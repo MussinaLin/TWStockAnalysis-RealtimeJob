@@ -8,8 +8,9 @@ TWStockAnalysis-RealtimeJob is a Python project for real-time Taiwan stock marke
 
 ## Language & Tooling
 
-- Python (see .gitignore for standard Python project patterns)
-- No build/test/lint configuration exists yet — update this file when tooling is added
+- Python (>=3.13)，依賴管理見 `pyproject.toml`
+- Lint: `ruff check src/ tests/`
+- Test: `pytest tests/unit/ -q`（單元測試放在 `tests/unit/`，純函式優先、避免依賴網路/DB）
 
 
 ## Git Commit
