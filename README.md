@@ -59,6 +59,8 @@ DATABASE_URL=postgresql://... python scripts/backfill_market_type.py
 
 不會覆蓋 daily job 寫入的法人買賣超、融資融券等欄位。
 
+**寫入條件**：`open`、`high`、`low`、`close` 必須**全部有值**才會寫入；任一缺值（None / NaN）整列直接跳過，**寧可不更新該檔盤中價，也不寫入 NULL**。此檢查在資料來源解析與 DB 寫入兩層都會執行（防止 yfinance 部分回應導致 NULL 寫入）。
+
 ## 環境變數
 
 | 變數 | 必填 | 說明 |

@@ -81,8 +81,8 @@ def fetch_prices(
         row_high = _safe_float(data["High"][yf_sym].iloc[0])
         row_low = _safe_float(data["Low"][yf_sym].iloc[0])
 
-        if row_close is None:
-            logger.debug("symbol %s close 為 None，跳過", yf_sym)
+        if None in (row_open, row_high, row_low, row_close):
+            logger.debug("symbol %s OHLC 含 None，跳過", yf_sym)
             skipped += 1
             continue
 

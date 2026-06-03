@@ -99,6 +99,29 @@ def _safe(val):
     return val
 
 
+def _build_params(
+    trade_date: dt.date,
+    rows: list[dict],
+) -> tuple[list[tuple], int]:
+    """Build INSERT params, dropping rows whose OHLC is not fully populated.
+
+    Defense-in-depth: even if upstream lets a NaN/None through, no row with a
+    missing open/high/low/close is ever written. Returns (params, skipped).
+    """
+    params: list[tuple] = []
+    skipped = 0
+    for r in rows:
+        o = _safe(r.get("open"))
+        h = _safe(r.get("high"))
+        low = _safe(r.get("low"))
+        c = _safe(r.get("close"))
+        if None in (o, h, low, c):
+            skipped += 1
+            continue
+        params.append((r["symbol"], trade_date, r.get("name"), o, h, low, c))
+    return params, skipped
+
+
 def upsert_prices(
     database_url: str,
     trade_date: dt.date,
@@ -107,9 +130,16 @@ def upsert_prices(
     """Upsert price data into stock_daily_raw.
 
     Each row dict: {symbol, name, open, high, low, close}.
+    Rows with any missing OHLC value are skipped (never written as NULL).
     Returns number of rows upserted.
     """
     if not rows:
+        return 0
+
+    params, skipped = _build_params(trade_date, rows)
+    if skipped:
+        logger.warning("upsert: %d 筆因 OHLC 含 None 跳過，不寫入", skipped)
+    if not params:
         return 0
 
     pool = get_pool(database_url)
@@ -123,18 +153,6 @@ def upsert_prices(
             low   = COALESCE(EXCLUDED.low, stock_daily_raw.low),
             close = COALESCE(EXCLUDED.close, stock_daily_raw.close)
     """
-
-    params = []
-    for r in rows:
-        params.append((
-            r["symbol"],
-            trade_date,
-            r.get("name"),
-            _safe(r.get("open")),
-            _safe(r.get("high")),
-            _safe(r.get("low")),
-            _safe(r.get("close")),
-        ))
 
     with pool.connection() as conn:
         ensure_partition(conn, trade_date)
