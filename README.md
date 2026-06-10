@@ -50,7 +50,7 @@ ALTER TABLE stocks ADD COLUMN IF NOT EXISTS market_type VARCHAR(4);
 DATABASE_URL=postgresql://... python scripts/backfill_market_type.py
 ```
 
-此腳本透過 yfinance 自動偵測每支股票屬於上市或上櫃，並寫入 `market_type`。
+此腳本透過 TPEX OpenAPI 取得上櫃股票清單，判斷每支股票屬於上市或上櫃，並寫入 `market_type`。
 
 ### 寫入 `stock_daily_raw` table
 
@@ -60,6 +60,8 @@ DATABASE_URL=postgresql://... python scripts/backfill_market_type.py
 不會覆蓋 daily job 寫入的法人買賣超、融資融券等欄位。
 
 **寫入條件**：`open`、`high`、`low`、`close` 必須**全部有值**才會寫入；任一缺值（None / NaN）整列直接跳過，**寧可不更新該檔盤中價，也不寫入 NULL**。此檢查在資料來源解析與 DB 寫入兩層都會執行（防止 yfinance 部分回應導致 NULL 寫入）。
+
+**日期判定**：yfinance 多檔下載回傳的 index 是各檔日期的聯集，停牌或當日無成交的個股會讓 index 多出舊日期列。程式一律取**最新日期那一列**作為資料日期與報價來源，與 `today` 不符時整批跳過；停牌個股在最新列為 NaN，由上述寫入條件單獨跳過該檔，不影響其他股票。
 
 ## 環境變數
 

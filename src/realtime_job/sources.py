@@ -66,7 +66,10 @@ def fetch_prices(
         logger.warning("yfinance 回傳空資料")
         return [], None
 
-    data_date = data.index[0].date() if len(data.index) > 0 else None
+    # 多檔下載時 index 是各檔日期的聯集；停牌或無成交的個股最後一根會停在舊日期，
+    # 必須取最新的那一列，否則整批會被舊日期拖垮。
+    latest = data.index.max()
+    data_date = latest.date()
     logger.info("yfinance 回傳日期: %s", data_date)
 
     results = []
@@ -76,10 +79,10 @@ def fetch_prices(
             logger.debug("symbol %s 無資料欄位，跳過", yf_sym)
             skipped += 1
             continue
-        row_close = _safe_float(data["Close"][yf_sym].iloc[0])
-        row_open = _safe_float(data["Open"][yf_sym].iloc[0])
-        row_high = _safe_float(data["High"][yf_sym].iloc[0])
-        row_low = _safe_float(data["Low"][yf_sym].iloc[0])
+        row_close = _safe_float(data["Close"][yf_sym].loc[latest])
+        row_open = _safe_float(data["Open"][yf_sym].loc[latest])
+        row_high = _safe_float(data["High"][yf_sym].loc[latest])
+        row_low = _safe_float(data["Low"][yf_sym].loc[latest])
 
         if None in (row_open, row_high, row_low, row_close):
             logger.debug("symbol %s OHLC 含 None，跳過", yf_sym)
