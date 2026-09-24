@@ -60,24 +60,43 @@ def init_schema(database_url: str) -> None:
             )
         """)
         conn.execute("""
-            INSERT INTO config (key, value) VALUES ('is_trading_date', 'true')
-            ON CONFLICT (key) DO NOTHING
-        """)
-        conn.execute("""
             ALTER TABLE stocks ADD COLUMN IF NOT EXISTS market_type VARCHAR(4)
         """)
         conn.commit()
 
 
-def is_trading_date(database_url: str) -> bool:
-    pool = get_pool(database_url)
-    with pool.connection() as conn:
-        row = conn.execute(
-            "SELECT value FROM config WHERE key = 'is_trading_date'"
-        ).fetchone()
-    if row is None:
+def _parse_trading_day(value: str | None) -> bool:
+    """解析 config.is_trading_day 的值。
+
+    fail-open：讀不到（None）或無法辨識的值一律視為 True 照常執行，
+    開關只是輔助，缺了不能影響盤中更新。
+    """
+    if value is None:
+        logger.warning("config 表查無 is_trading_day，視為交易日照常執行")
+        return True
+
+    normalized = value.strip().lower()
+    if normalized in ("false", "0", "no"):
         return False
-    return row[0].lower() == "true"
+    if normalized in ("true", "1", "yes"):
+        return True
+
+    logger.warning("config.is_trading_day 值無法辨識（%r），視為交易日照常執行", value)
+    return True
+
+
+def is_trading_day(database_url: str) -> bool:
+    """讀取 config.is_trading_day；讀取失敗同樣 fail-open 視為交易日。"""
+    try:
+        pool = get_pool(database_url)
+        with pool.connection() as conn:
+            row = conn.execute(
+                "SELECT value FROM config WHERE key = 'is_trading_day'"
+            ).fetchone()
+    except psycopg.Error as exc:
+        logger.warning("讀取 config.is_trading_day 失敗（%s），視為交易日照常執行", exc)
+        return True
+    return _parse_trading_day(row[0] if row else None)
 
 
 def get_enabled_stocks(database_url: str) -> list[tuple[str, str, str | None]]:

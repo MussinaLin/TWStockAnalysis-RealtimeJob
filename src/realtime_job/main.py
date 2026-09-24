@@ -8,7 +8,7 @@ import os
 import sys
 import time
 
-from .db import close_pool, get_enabled_stocks, init_schema, is_trading_date, upsert_prices
+from .db import close_pool, get_enabled_stocks, init_schema, is_trading_day, upsert_prices
 from .sources import fetch_prices
 
 logger = logging.getLogger("realtime_job")
@@ -38,7 +38,7 @@ def main() -> None:
         init_schema(database_url)
         logger.info("schema 初始化完成 (%.1fs)", time.monotonic() - t0)
 
-        if not is_trading_date(database_url):
+        if not is_trading_day(database_url):
             logger.info("非交易日，跳過")
             return
 

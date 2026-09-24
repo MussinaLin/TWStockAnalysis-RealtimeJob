@@ -2,7 +2,11 @@
 
 import datetime as dt
 
-from realtime_job.db import _build_params, _safe
+import psycopg
+import pytest
+
+from realtime_job import db
+from realtime_job.db import _build_params, _parse_trading_day, _safe
 
 TRADE_DATE = dt.date(2026, 6, 3)
 
@@ -68,3 +72,26 @@ def test_build_params_mixed():
 
 def test_build_params_empty():
     assert _build_params(TRADE_DATE, []) == ([], 0)
+
+
+@pytest.mark.parametrize("value", ["false", "FALSE", " False ", "0", "no"])
+def test_parse_trading_day_false_values(value):
+    assert _parse_trading_day(value) is False
+
+
+@pytest.mark.parametrize("value", ["true", "TRUE", " True ", "1", "yes"])
+def test_parse_trading_day_true_values(value):
+    assert _parse_trading_day(value) is True
+
+
+@pytest.mark.parametrize("value", [None, "", "maybe"])
+def test_parse_trading_day_fail_open(value):
+    assert _parse_trading_day(value) is True
+
+
+def test_is_trading_day_db_error_fail_open(monkeypatch):
+    def boom(url):
+        raise psycopg.OperationalError("down")
+
+    monkeypatch.setattr(db, "get_pool", boom)
+    assert db.is_trading_day("postgresql://x") is True

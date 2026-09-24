@@ -6,7 +6,7 @@ TWStockAnalysis 為 daily job（每天收盤後執行一次），本專案以 cr
 
 ## 執行流程
 
-1. 查詢 `config` table 的 `is_trading_date`，非交易日直接結束
+1. 查詢 `config` table 的 `is_trading_day`，值為 `false` / `0` / `no` 時直接結束；查無此 key、值無法辨識或讀取失敗一律 fail-open 視為交易日照常執行
 2. 查詢 `stocks` table 中 `enabled=TRUE` 且有 `market_type` 的股票清單
 3. 透過 yfinance 一次取得所有股票的 OHLCV（上市 `.TW`、上櫃 `.TWO`）
 4. 將 open, high, low, current price（寫入 close 欄位）upsert 到 `stock_daily_raw` table
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS config (
 );
 ```
 
-預設 `is_trading_date = 'true'`，非交易日需手動（或透過其他機制）設為 `'false'`。
+休市開關使用 `key = 'is_trading_day'`（與 TWStockAnalysis / TWStockAnalysis-RawData 共用同一筆，由外部維護），本專案只讀不寫；非交易日設為 `'false'`。
 
 ### 新增 `stocks.market_type` 欄位
 
